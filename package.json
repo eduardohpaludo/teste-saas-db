@@ -1,0 +1,11 @@
+{
+  "name": "teste-saas-db",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "fastify": "^4.24.3",
+    "pg": "^8.11.3"
+  }
+}
