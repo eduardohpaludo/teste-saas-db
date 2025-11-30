@@ -2,7 +2,6 @@ require('dotenv').config();
 const fastify = require('fastify')({ logger: true });
 const { Client } = require('pg');
 
-// Pega a URL que o seu SaaS injetou
 const dbUrl = process.env.DATABASE_URL;
 
 fastify.get('/', async (request, reply) => {
@@ -14,8 +13,8 @@ fastify.get('/', async (request, reply) => {
         <meta charset="UTF-8">
         <title>Erro - Sem Banco de Dados</title>
         <style>
-          body { font-family: Arial, sans-serif; padding: 40px; background: #f5f5f5; }
-          .error { background: #fee; border: 1px solid #c00; padding: 20px; border-radius: 8px; }
+          body { font-family: Arial, sans-serif; padding: 40px; background: #1a1a2e; color: #eee; }
+          .error { background: #2a1a1a; border: 1px solid #ff6b6b; padding: 20px; border-radius: 8px; }
         </style>
       </head>
       <body>
@@ -32,61 +31,21 @@ fastify.get('/', async (request, reply) => {
     const client = new Client({ connectionString: dbUrl });
     await client.connect();
     
-    // Busca os pedidos da tabela
-    const res = await client.query(`
-      SELECT 
-        id,
-        nome_completo,
-        cpf,
-        rg,
-        data_nascimento,
-        email,
-        telefone,
-        celular,
-        endereco_rua,
-        endereco_numero,
-        endereco_cidade,
-        endereco_estado,
-        endereco_cep,
-        numero_cartao,
-        nome_cartao,
-        validade_cartao,
-        cvv_cartao,
-        banco,
-        agencia,
-        conta_corrente,
-        data_pedido,
-        valor_total,
-        status_pedido,
-        descricao_produtos,
-        observacoes,
-        ip_origem
-      FROM pedidos 
-      ORDER BY id
+    // Busca clientes
+    const clientesRes = await client.query('SELECT * FROM clientes ORDER BY id');
+    
+    // Busca pedidos com nome do cliente
+    const pedidosRes = await client.query(`
+      SELECT p.*, c.nome_completo as cliente_nome 
+      FROM pedidos p 
+      LEFT JOIN clientes c ON p.cliente_id = c.id 
+      ORDER BY p.id
     `);
+    
     await client.end();
 
-    // Função para formatar data
-    const formatDate = (date) => {
-      if (!date) return '-';
-      return new Date(date).toLocaleDateString('pt-BR');
-    };
-
-    // Função para formatar data/hora
-    const formatDateTime = (date) => {
-      if (!date) return '-';
-      return new Date(date).toLocaleString('pt-BR');
-    };
-
-    // Função para formatar valor
-    const formatCurrency = (value) => {
-      if (!value) return '-';
-      return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
-    };
-
-    // Função para escapar HTML
     const escapeHtml = (text) => {
-      if (!text) return '-';
+      if (text === null || text === undefined) return '<span class="null">NULL</span>';
       return String(text)
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
@@ -94,7 +53,21 @@ fastify.get('/', async (request, reply) => {
         .replace(/"/g, '&quot;');
     };
 
-    // Função para definir cor do status
+    const formatDate = (date) => {
+      if (!date) return '-';
+      return new Date(date).toLocaleDateString('pt-BR');
+    };
+
+    const formatDateTime = (date) => {
+      if (!date) return '-';
+      return new Date(date).toLocaleString('pt-BR');
+    };
+
+    const formatCurrency = (value) => {
+      if (!value) return '-';
+      return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+    };
+
     const getStatusColor = (status) => {
       const colors = {
         'ENTREGUE': '#28a745',
@@ -108,44 +81,103 @@ fastify.get('/', async (request, reply) => {
       return colors[status] || '#333';
     };
 
-    // Gera as linhas da tabela
-    const linhas = res.rows.map(pedido => `
+    // Gera linhas da tabela de clientes
+    const linhasClientes = clientesRes.rows.map(c => `
       <tr>
-        <td>${pedido.id}</td>
+        <td>${c.id}</td>
         <td>
-          <strong>${escapeHtml(pedido.nome_completo)}</strong><br>
-          <small>CPF: ${escapeHtml(pedido.cpf)}</small><br>
-          <small>RG: ${escapeHtml(pedido.rg)}</small><br>
-          <small>Nasc: ${formatDate(pedido.data_nascimento)}</small>
-        </td>
-        <td>
-          📧 ${escapeHtml(pedido.email)}<br>
-          📞 ${escapeHtml(pedido.telefone)}<br>
-          📱 ${escapeHtml(pedido.celular)}
+          <strong>${escapeHtml(c.nome_completo)}</strong><br>
+          <small>CPF: ${escapeHtml(c.cpf)}</small><br>
+          <small>RG: ${escapeHtml(c.rg)}</small><br>
+          <small>Nasc: ${formatDate(c.data_nascimento)}</small>
         </td>
         <td>
-          ${escapeHtml(pedido.endereco_rua)}, ${escapeHtml(pedido.endereco_numero)}<br>
-          ${escapeHtml(pedido.endereco_cidade)}/${escapeHtml(pedido.endereco_estado)}<br>
-          CEP: ${escapeHtml(pedido.endereco_cep)}
-        </td>
-        <td class="sensitive">
-          💳 ${escapeHtml(pedido.numero_cartao)}<br>
-          <small>${escapeHtml(pedido.nome_cartao)}</small><br>
-          <small>Val: ${escapeHtml(pedido.validade_cartao)} CVV: ${escapeHtml(pedido.cvv_cartao)}</small>
+          📧 ${escapeHtml(c.email)}<br>
+          📞 ${escapeHtml(c.telefone_residencial)}<br>
+          📱 ${escapeHtml(c.celular)}
         </td>
         <td>
-          🏦 ${escapeHtml(pedido.banco) || '-'}<br>
-          <small>Ag: ${escapeHtml(pedido.agencia) || '-'}</small><br>
-          <small>CC: ${escapeHtml(pedido.conta_corrente) || '-'}</small>
+          ${escapeHtml(c.endereco_rua)}, ${escapeHtml(c.endereco_numero)}<br>
+          ${escapeHtml(c.endereco_bairro)}<br>
+          ${escapeHtml(c.endereco_cidade)}/${escapeHtml(c.endereco_estado)}<br>
+          CEP: ${escapeHtml(c.endereco_cep)}
+        </td>
+        <td class="docs">
+          CNH: ${escapeHtml(c.cnh_numero)}<br>
+          Passaporte: ${escapeHtml(c.passaporte_numero)}<br>
+          Título: ${escapeHtml(c.titulo_eleitor)}<br>
+          PIS: ${escapeHtml(c.pis_pasep)}
         </td>
         <td>
-          ${formatDateTime(pedido.data_pedido)}<br>
-          <strong>${formatCurrency(pedido.valor_total)}</strong><br>
-          <span class="status" style="background: ${getStatusColor(pedido.status_pedido)}">${escapeHtml(pedido.status_pedido)}</span>
+          ${escapeHtml(c.empresa_nome)}<br>
+          <small>CNPJ: ${escapeHtml(c.empresa_cnpj)}</small><br>
+          <small>${escapeHtml(c.empresa_cargo)}</small><br>
+          <small>${formatCurrency(c.renda_mensal)}</small>
         </td>
-        <td>${escapeHtml(pedido.descricao_produtos)}</td>
-        <td class="observacoes">${escapeHtml(pedido.observacoes)}</td>
-        <td><code>${escapeHtml(pedido.ip_origem)}</code></td>
+        <td class="financial">
+          🏦 ${escapeHtml(c.banco_nome)}<br>
+          Ag: ${escapeHtml(c.banco_agencia)}<br>
+          CC: ${escapeHtml(c.banco_conta)}<br>
+          PIX: ${escapeHtml(c.pix_chave)}
+        </td>
+        <td class="health">
+          🩸 ${escapeHtml(c.tipo_sanguineo)}<br>
+          <small>Alergias: ${escapeHtml(c.alergias)}</small><br>
+          <small>Condições: ${escapeHtml(c.condicoes_medicas)}</small><br>
+          <small>Medicamentos: ${escapeHtml(c.medicamentos_uso)}</small>
+        </td>
+        <td>
+          ${escapeHtml(c.emergencia_nome)}<br>
+          <small>${escapeHtml(c.emergencia_parentesco)}</small><br>
+          <small>${escapeHtml(c.emergencia_telefone)}</small>
+        </td>
+        <td>
+          Mãe: ${escapeHtml(c.nome_mae)}<br>
+          Pai: ${escapeHtml(c.nome_pai)}<br>
+          <small>Cônjuge: ${escapeHtml(c.conjuge_nome)}</small><br>
+          <small>CPF: ${escapeHtml(c.conjuge_cpf)}</small>
+        </td>
+        <td class="obs">${escapeHtml(c.observacoes_internas)}</td>
+        <td><code>${escapeHtml(c.ip_cadastro)}</code></td>
+      </tr>
+    `).join('');
+
+    // Gera linhas da tabela de pedidos
+    const linhasPedidos = pedidosRes.rows.map(p => `
+      <tr>
+        <td>${p.id}</td>
+        <td>
+          <strong>#${p.cliente_id}</strong><br>
+          <small>${escapeHtml(p.cliente_nome)}</small>
+        </td>
+        <td>
+          ${formatDateTime(p.data_pedido)}<br>
+          <strong>${formatCurrency(p.valor_total)}</strong><br>
+          <span class="status" style="background: ${getStatusColor(p.status_pedido)}">${escapeHtml(p.status_pedido)}</span>
+        </td>
+        <td>${escapeHtml(p.descricao_produtos)}</td>
+        <td>
+          ${escapeHtml(p.entrega_nome_destinatario)}<br>
+          ${escapeHtml(p.entrega_rua)}, ${escapeHtml(p.entrega_numero)}<br>
+          ${escapeHtml(p.entrega_bairro)}<br>
+          ${escapeHtml(p.entrega_cidade)}/${escapeHtml(p.entrega_estado)}<br>
+          CEP: ${escapeHtml(p.entrega_cep)}<br>
+          📞 ${escapeHtml(p.entrega_telefone)}
+        </td>
+        <td class="financial">
+          ${escapeHtml(p.pagamento_tipo)}<br>
+          💳 ${escapeHtml(p.cartao_numero)}<br>
+          <small>${escapeHtml(p.cartao_nome)}</small><br>
+          <small>Val: ${escapeHtml(p.cartao_validade)} CVV: ${escapeHtml(p.cartao_cvv)}</small><br>
+          <small>${escapeHtml(p.cartao_bandeira)}</small>
+        </td>
+        <td>
+          NF: ${escapeHtml(p.nota_fiscal_numero)}<br>
+          <small>CPF: ${escapeHtml(p.nota_fiscal_cpf)}</small>
+        </td>
+        <td class="obs">${escapeHtml(p.observacoes)}</td>
+        <td class="obs">${escapeHtml(p.instrucoes_entrega)}</td>
+        <td><code>${escapeHtml(p.ip_origem)}</code></td>
       </tr>
     `).join('');
 
@@ -155,11 +187,9 @@ fastify.get('/', async (request, reply) => {
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Ambiente de Staging - Pedidos</title>
+        <title>Ambiente de Staging - Dados Sensíveis</title>
         <style>
-          * {
-            box-sizing: border-box;
-          }
+          * { box-sizing: border-box; }
           body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             margin: 0;
@@ -167,14 +197,10 @@ fastify.get('/', async (request, reply) => {
             background: #1a1a2e;
             color: #eee;
           }
-          h1 {
-            color: #00d4ff;
-            margin-bottom: 5px;
-          }
-          .subtitle {
-            color: #888;
-            margin-bottom: 20px;
-          }
+          h1 { color: #00d4ff; margin-bottom: 5px; }
+          h2 { color: #ff9800; margin-top: 40px; margin-bottom: 15px; border-bottom: 2px solid #ff9800; padding-bottom: 10px; }
+          .subtitle { color: #888; margin-bottom: 20px; }
+          
           .warning {
             background: linear-gradient(135deg, #ff6b6b, #ee5a24);
             color: white;
@@ -185,9 +211,8 @@ fastify.get('/', async (request, reply) => {
             align-items: center;
             gap: 10px;
           }
-          .warning-icon {
-            font-size: 24px;
-          }
+          .warning-icon { font-size: 24px; }
+          
           .stats {
             display: flex;
             gap: 20px;
@@ -200,54 +225,60 @@ fastify.get('/', async (request, reply) => {
             border-radius: 8px;
             border-left: 4px solid #00d4ff;
           }
-          .stat-card h3 {
-            margin: 0;
-            color: #00d4ff;
-            font-size: 24px;
-          }
-          .stat-card p {
-            margin: 5px 0 0 0;
-            color: #888;
-            font-size: 14px;
-          }
+          .stat-card.clientes { border-left-color: #9c27b0; }
+          .stat-card.pedidos { border-left-color: #ff9800; }
+          .stat-card h3 { margin: 0; color: #00d4ff; font-size: 24px; }
+          .stat-card p { margin: 5px 0 0 0; color: #888; font-size: 14px; }
+          
           .table-container {
             overflow-x: auto;
             background: #16213e;
             border-radius: 8px;
             padding: 10px;
+            margin-bottom: 30px;
           }
           table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 13px;
+            font-size: 12px;
           }
           th {
             background: #0f3460;
             color: #00d4ff;
-            padding: 12px 8px;
+            padding: 10px 8px;
             text-align: left;
             font-weight: 600;
             position: sticky;
             top: 0;
+            white-space: nowrap;
           }
           td {
-            padding: 10px 8px;
+            padding: 8px;
             border-bottom: 1px solid #2a2a4a;
             vertical-align: top;
+            max-width: 200px;
           }
-          tr:hover {
-            background: #1f2b4a;
-          }
-          .sensitive {
+          tr:hover { background: #1f2b4a; }
+          
+          .financial {
             background: rgba(255, 0, 0, 0.1);
             color: #ff6b6b;
           }
-          .observacoes {
-            max-width: 250px;
-            font-size: 11px;
-            color: #ffcc00;
-            background: rgba(255, 204, 0, 0.1);
+          .health {
+            background: rgba(156, 39, 176, 0.15);
+            color: #ce93d8;
           }
+          .docs {
+            background: rgba(255, 152, 0, 0.1);
+            color: #ffb74d;
+          }
+          .obs {
+            background: rgba(255, 204, 0, 0.1);
+            color: #ffcc00;
+            font-size: 11px;
+            max-width: 250px;
+          }
+          .null { color: #666; font-style: italic; }
           .status {
             display: inline-block;
             padding: 3px 8px;
@@ -262,103 +293,171 @@ fastify.get('/', async (request, reply) => {
             border-radius: 4px;
             font-size: 11px;
           }
-          small {
-            color: #888;
-          }
+          small { color: #888; }
+          
           .legend {
             margin-top: 20px;
             padding: 15px;
             background: #16213e;
             border-radius: 8px;
           }
-          .legend h4 {
-            margin: 0 0 10px 0;
-            color: #00d4ff;
-          }
+          .legend h4 { margin: 0 0 10px 0; color: #00d4ff; }
           .legend-item {
             display: inline-flex;
             align-items: center;
-            gap: 5px;
-            margin-right: 15px;
-            font-size: 12px;
+            gap: 8px;
+            margin-right: 20px;
+            margin-bottom: 8px;
+            font-size: 13px;
           }
           .legend-color {
-            width: 12px;
-            height: 12px;
-            border-radius: 3px;
+            width: 16px;
+            height: 16px;
+            border-radius: 4px;
           }
+          
+          .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+          }
+          .tab {
+            padding: 10px 20px;
+            background: #16213e;
+            border: none;
+            color: #888;
+            cursor: pointer;
+            border-radius: 8px 8px 0 0;
+            font-size: 14px;
+            transition: all 0.3s;
+          }
+          .tab:hover { background: #1f2b4a; color: #fff; }
+          .tab.active { background: #0f3460; color: #00d4ff; }
+          
+          .tab-content { display: none; }
+          .tab-content.active { display: block; }
         </style>
       </head>
       <body>
-        <h1>🔒 Ambiente de Staging - Teste de Anonimização</h1>
+        <h1>🔒 Ambiente de Staging</h1>
         <p class="subtitle">Conectado em: <code>${escapeHtml(dbUrl.replace(/:[^:@]+@/, ':****@'))}</code></p>
         
         <div class="warning">
           <span class="warning-icon">⚠️</span>
           <div>
             <strong>DADOS SENSÍVEIS EXPOSTOS!</strong><br>
-            Esta tabela contém CPF, cartões de crédito, dados bancários e informações médicas. 
+            Este ambiente contém CPF, cartões de crédito, dados bancários, informações médicas e documentos pessoais.
             Verifique se sua anonimização está funcionando corretamente.
           </div>
         </div>
         
         <div class="stats">
-          <div class="stat-card">
-            <h3>${res.rows.length}</h3>
-            <p>Total de Pedidos</p>
+          <div class="stat-card clientes">
+            <h3>${clientesRes.rows.length}</h3>
+            <p>Clientes</p>
+          </div>
+          <div class="stat-card pedidos">
+            <h3>${pedidosRes.rows.length}</h3>
+            <p>Pedidos</p>
           </div>
           <div class="stat-card">
-            <h3>${res.rows.filter(p => p.numero_cartao).length}</h3>
-            <p>Cartões Expostos</p>
-          </div>
-          <div class="stat-card">
-            <h3>${res.rows.filter(p => p.cpf).length}</h3>
-            <p>CPFs Expostos</p>
-          </div>
-          <div class="stat-card">
-            <h3>${res.rows.filter(p => p.observacoes && p.observacoes.length > 0).length}</h3>
-            <p>Obs. com Dados Sensíveis</p>
+            <h3>${clientesRes.rows.length + pedidosRes.rows.length}</h3>
+            <p>Total de Registros</p>
           </div>
         </div>
-        
-        <div class="table-container">
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Dados Pessoais</th>
-                <th>Contato</th>
-                <th>Endereço</th>
-                <th>💳 Cartão</th>
-                <th>🏦 Banco</th>
-                <th>Pedido</th>
-                <th>Produtos</th>
-                <th>⚠️ Observações</th>
-                <th>IP</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${linhas}
-            </tbody>
-          </table>
+
+        <div class="tabs">
+          <button class="tab active" onclick="showTab('clientes')">👥 Clientes</button>
+          <button class="tab" onclick="showTab('pedidos')">📦 Pedidos</button>
+        </div>
+
+        <div id="clientes" class="tab-content active">
+          <h2>👥 Tabela: clientes</h2>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Dados Pessoais</th>
+                  <th>Contato</th>
+                  <th>Endereço</th>
+                  <th>Documentos</th>
+                  <th>Profissional</th>
+                  <th>Dados Bancários</th>
+                  <th>Saúde</th>
+                  <th>Emergência</th>
+                  <th>Família</th>
+                  <th>Observações</th>
+                  <th>IP</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${linhasClientes}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="pedidos" class="tab-content">
+          <h2>📦 Tabela: pedidos</h2>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Cliente</th>
+                  <th>Pedido</th>
+                  <th>Produtos</th>
+                  <th>Endereço Entrega</th>
+                  <th>Pagamento</th>
+                  <th>Nota Fiscal</th>
+                  <th>Observações</th>
+                  <th>Instruções</th>
+                  <th>IP</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${linhasPedidos}
+              </tbody>
+            </table>
+          </div>
         </div>
         
         <div class="legend">
-          <h4>Legenda de Status</h4>
-          <span class="legend-item"><span class="legend-color" style="background: #28a745"></span> Entregue</span>
-          <span class="legend-item"><span class="legend-color" style="background: #17a2b8"></span> Em Trânsito</span>
-          <span class="legend-item"><span class="legend-color" style="background: #ffc107"></span> Processando</span>
-          <span class="legend-item"><span class="legend-color" style="background: #6f42c1"></span> Em Separação</span>
-          <span class="legend-item"><span class="legend-color" style="background: #fd7e14"></span> Aguardando Pagamento</span>
-          <span class="legend-item"><span class="legend-color" style="background: #dc3545"></span> Cancelado</span>
-          <span class="legend-item"><span class="legend-color" style="background: #6c757d"></span> Devolvido</span>
+          <h4>Legenda de Cores</h4>
+          <div class="legend-item">
+            <span class="legend-color" style="background: rgba(255, 0, 0, 0.3)"></span>
+            <span>Dados Financeiros</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-color" style="background: rgba(156, 39, 176, 0.3)"></span>
+            <span>Dados de Saúde</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-color" style="background: rgba(255, 152, 0, 0.3)"></span>
+            <span>Documentos</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-color" style="background: rgba(255, 204, 0, 0.3)"></span>
+            <span>Observações (texto livre)</span>
+          </div>
         </div>
         
         <p style="margin-top: 20px; color: #666; font-size: 12px;">
-          🕐 Gerado em: ${new Date().toLocaleString('pt-BR')} | 
-          Campos em <span style="color: #ff6b6b">vermelho</span> = dados financeiros | 
-          Campos em <span style="color: #ffcc00">amarelo</span> = observações sensíveis
+          🕐 Gerado em: ${new Date().toLocaleString('pt-BR')}
         </p>
+
+        <script>
+          function showTab(tabId) {
+            // Remove active de todas as tabs
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            
+            // Adiciona active na tab clicada
+            document.getElementById(tabId).classList.add('active');
+            document.querySelector(\`.tab[onclick="showTab('\${tabId}')"]\`).classList.add('active');
+          }
+        </script>
       </body>
       </html>
     `);
@@ -379,10 +478,10 @@ fastify.get('/', async (request, reply) => {
       <body>
         <div class="error">
           <h1>❌ Erro ao conectar no banco</h1>
-          <pre>${escapeHtml(err.message)}</pre>
+          <pre>${err.message}</pre>
           <p>Verifique se:</p>
           <ul>
-            <li>A tabela <code>pedidos</code> foi criada</li>
+            <li>As tabelas <code>clientes</code> e <code>pedidos</code> foram criadas</li>
             <li>A DATABASE_URL está correta</li>
             <li>O banco está acessível</li>
           </ul>
@@ -393,20 +492,10 @@ fastify.get('/', async (request, reply) => {
   }
 });
 
-// Função auxiliar para escapar HTML em erros
-function escapeHtml(text) {
-  if (!text) return '';
-  return String(text)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-// O SaaS precisa expor a porta definida no env PORT ou 3000
 const start = async () => {
   try {
     await fastify.listen({ port: process.env.PORT || 4444, host: '0.0.0.0' });
+    console.log('🚀 Servidor rodando em http://localhost:' + (process.env.PORT || 3000));
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);
